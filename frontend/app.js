@@ -511,6 +511,25 @@
     } catch (_) { /* sin WebGL: DOM por defecto */ }
   }
 
+  // Ajusta el tamaño de la terminal sin que la última fila (p.ej. la barra de
+  // estado de tmux) quede recortada por el contenedor: si tras el fit() el
+  // contenido renderizado sobresale, se reduce el nº de filas lo justo.
+  function _fitNoOverflow(t, fit, container) {
+    fit.fit();
+    const screen = container.querySelector(".xterm-screen");
+    if (!screen) return;
+    // Comparamos cajas reales (no clientHeight/offsetHeight): el padding del
+    // contenedor desplaza .xterm-screen, así que solo el rect da el desborde real.
+    const cRect = container.getBoundingClientRect();
+    const sRect = screen.getBoundingClientRect();
+    const overflow = sRect.bottom - cRect.bottom;
+    if (overflow > 0) {
+      const rowH = sRect.height / t.rows;
+      const extraRows = Math.ceil(overflow / rowH);
+      if (extraRows > 0 && t.rows - extraRows > 0) t.resize(t.cols, t.rows - extraRows);
+    }
+  }
+
   // Colores de resaltado de la búsqueda (no activo / activo), en la paleta.
   const _FIND_DECOR = {
     decorations: {
@@ -545,8 +564,8 @@
     // NO interceptar aquí: stopPropagation() en captura impide que xterm genere el escape
     // sequence, y `term.scrollLines()` opera sobre el buffer interno de xterm, no sobre
     // el scrollback visible de tmux.
-    fitAddon.fit();
-    requestAnimationFrame(() => { try { fitAddon.fit(); } catch (_) {} });
+    _fitNoOverflow(term, fitAddon, $("terminal-container"));
+    requestAnimationFrame(() => { try { _fitNoOverflow(term, fitAddon, $("terminal-container")); } catch (_) {} });
     term.onData((d) => {
       // Si el "Ctrl" de la barra está armado, aplica Ctrl a la siguiente tecla.
       if (ctrlPending && d.length === 1) { d = toCtrl(d); setCtrl(false); }
@@ -1413,6 +1432,32 @@
       tryWebgl(t);
       t.onData((d) => { if (ws2 && ws2.readyState === WebSocket.OPEN) ws2.send(d); });
       t.onSelectionChange(() => { const s = t.getSelection(); if (s) navigator.clipboard.writeText(s).catch(() => {}); });
+
+      // Clic derecho: copia si hay selección, si no pega (texto o imagen) — igual que en la terminal principal.
+      const copySel2 = () => {
+        const sel = t.getSelection();
+        if (sel) { navigator.clipboard.writeText(sel).catch(() => {}); return true; }
+        return false;
+      };
+      const pasteFromClipboard2 = async () => {
+        try {
+          if (navigator.clipboard && navigator.clipboard.read) {
+            const items = await navigator.clipboard.read();
+            for (const it of items) {
+              const imgType = (it.types || []).find((ty) => ty.startsWith("image/"));
+              if (imgType) { const blob = await it.getType(imgType); await uploadFile(blob); return; }
+            }
+          }
+        } catch (_) { /* sin permiso de imagen -> probamos texto */ }
+        try {
+          const txt = await navigator.clipboard.readText();
+          if (txt && ws2 && ws2.readyState === WebSocket.OPEN) ws2.send(txt);
+        } catch (_) {}
+      };
+      $("terminal-container-2").addEventListener("contextmenu", (e) => {
+        e.preventDefault();
+        if (copySel2()) t.clearSelection(); else pasteFromClipboard2();
+      });
     }
     function connect() {
       const proto = location.protocol === "https:" ? "wss" : "ws";
@@ -1440,7 +1485,7 @@
     }
     function fitNow() {
       if (!fit || !t) return;
-      try { fit.fit(); if (ws2 && ws2.readyState === WebSocket.OPEN) ws2.send(JSON.stringify({ type: "resize", cols: t.cols, rows: t.rows })); } catch (_) {}
+      try { _fitNoOverflow(t, fit, $("terminal-container-2")); if (ws2 && ws2.readyState === WebSocket.OPEN) ws2.send(JSON.stringify({ type: "resize", cols: t.cols, rows: t.rows })); } catch (_) {}
     }
     return {
       attach(session) {
@@ -1550,7 +1595,8 @@
     if (panes) {
       const Lel = _slotEl(_slots.L), Rel = _slotEl(_slots.R);
       const unused = [P, S, V].filter((el) => el && el !== Lel && el !== Rel);
-      panes.append(Lel, div, Rel, ...unused);
+      const find = $("term-find");
+      panes.append(Lel, div, Rel, ...unused, ...(find ? [find] : []));
     }
     _applyFocusOutline();
   }
@@ -2596,13 +2642,13 @@
     }
   }
 
-  function doFit() { if (!fitAddon) return; fitAddon.fit(); sendResize(); }
+  function doFit() { if (!fitAddon) return; _fitNoOverflow(term, fitAddon, $("terminal-container")); sendResize(); }
   function sendResize() {
     if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }));
   }
   function changeFont(delta) {
     let s = term.options.fontSize + delta; if (s < 10) s = 10; if (s > 22) s = 22;
-    term.options.fontSize = s; $("font-size").textContent = String(s); fitAddon.fit(); sendResize();
+    term.options.fontSize = s; $("font-size").textContent = String(s); _fitNoOverflow(term, fitAddon, $("terminal-container")); sendResize();
   }
 
   function connectWS() {

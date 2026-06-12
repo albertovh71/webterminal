@@ -1,6 +1,6 @@
 {
-  "name": "MessorTerminal móvil",
-  "short_name": "MessorTerm",
+  "name": "albertovh71_terminal móvil",
+  "short_name": "albertovh71",
   "description": "Terminal SSH para móvil — habla con Claude desde el teléfono",
   "start_url": "/m/",
   "scope": "/m/",

@@ -1,4 +1,4 @@
-/* MessorTerminal — versión móvil. Slim. Token + contraseña SSH solo en memoria.
+/* albertovh71_terminal — versión móvil. Slim. Token + contraseña SSH solo en memoria.
    Reutiliza los mismos endpoints que la versión de escritorio. */
 (function () {
   "use strict";
