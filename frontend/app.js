@@ -5,12 +5,14 @@
   let jwt = null;           // web session token (memory only)
   let sshUser = null;       // SSH system user (memory only)
   let sshPassword = null;   // SSH system password (memory only)
+  let currentUserEmail = null;
 
   let term = null, fitAddon = null, searchAddon = null, ws = null;
   let reconnectAttempts = 0;
   let autoOpenClaude = false;   // si true, ejecuta `claude` al conectar
   let currentSession = null;    // label de la sesión tmux activa (null = principal)
   let fsid = null;              // id de sesión para el explorador de archivos (SFTP)
+  let _cwTimer = null;          // intervalo del widget de uso de Claude
 
   const $ = (id) => document.getElementById(id);
   const SCREENS = ["login-screen", "forgot-screen", "reset-screen", "ssh-screen", "account-screen", "terminal-screen"];
@@ -43,6 +45,13 @@
     } catch (_) {}
   }
 
+  function setTopbarUser(email) {
+    const el = $("topbar-user");
+    if (!el) return;
+    if (email) { el.textContent = email; el.title = email; }
+    else { el.textContent = ""; el.title = ""; }
+  }
+
   async function doLogin(email, password) {
     const body = new FormData();
     body.append("email", email);
@@ -50,6 +59,8 @@
     const res = await fetch("/login", { method: "POST", body });
     if (!res.ok) return { ok: false, status: res.status };
     jwt = (await res.json()).token;
+    currentUserEmail = email.trim().toLowerCase();
+    setTopbarUser(currentUserEmail);
     return { ok: true };
   }
 
@@ -145,6 +156,9 @@
     try { await document.fonts.load('14px "JetBrains Mono"'); await document.fonts.ready; } catch (_) {}
     initTerminal();
     connectWS();
+    fetchClaudeUsage();
+    if (_cwTimer) clearInterval(_cwTimer);
+    _cwTimer = setInterval(fetchClaudeUsage, 30000);
   }
 
   function sshConnectFromForm(openClaude) {
@@ -163,6 +177,8 @@
 
   function logout() {
     jwt = sshUser = sshPassword = null;
+    currentUserEmail = null;
+    setTopbarUser(null);
     clearCreds();  // "Salir" = olvidar este equipo
     if (ws) { try { ws.close(); } catch (_) {} ws = null; }
     $("login-password").value = ""; $("ssh-password").value = "";
@@ -201,6 +217,8 @@
         if ($("account-newpassword").value) upd.password = $("account-newpassword").value;
         saveCreds(upd);
       }
+      currentUserEmail = d.email;
+      setTopbarUser(currentUserEmail);
       info.textContent = "Cambios guardados.";
       $("account-current").textContent = "Conectado como: " + d.email;
     } catch (_) { err.textContent = "Error al guardar."; }
@@ -2717,4 +2735,59 @@
     setStatus("reconnecting", `reconectando en ${secs}s…`);
     setTimeout(connectWS, delay);
   }
+
+  // ---------- CLAUDE USAGE WIDGET ----------
+  function _fmtN(n) {
+    if (n === undefined || n === null) return '—';
+    if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
+    if (n >= 1e3) return (n / 1e3).toFixed(1) + 'k';
+    return String(n);
+  }
+
+  function _fmtMins(m) {
+    if (m == null) return '';
+    const h = Math.floor(m / 60), min = m % 60;
+    return h > 0 ? `resetea en ${h}h ${min}m` : `resetea en ${min}m`;
+  }
+
+  async function fetchClaudeUsage() {
+    if (!jwt) return;
+    try {
+      const res = await fetch('/claude-usage', { headers: { Authorization: 'Bearer ' + jwt } });
+      if (!res.ok) return;
+      const d = await res.json();
+      const wPct = d.window_pct;
+      const sPct = d.weekly_pct;
+      $('cw-win').textContent = '5h ' + (wPct != null ? Math.round(wPct) + '%' : '…');
+      $('cw-sem').textContent = 'sem ' + (sPct != null ? Math.round(sPct) + '%' : '…');
+      if (wPct != null) {
+        $('cd-win-pct').textContent = Math.round(wPct) + '%';
+        $('cd-win-bar').style.width = wPct + '%';
+        $('cd-win-bar').className = 'cd-fill' + (wPct > 80 ? ' danger' : wPct > 60 ? ' warn' : '');
+        $('cd-win-reset').textContent = _fmtMins(d.window_reset_min);
+      }
+      if (sPct != null) {
+        $('cd-sem-pct').textContent = Math.round(sPct) + '%';
+        $('cd-sem-bar').style.width = sPct + '%';
+        $('cd-sem-bar').className = 'cd-fill' + (sPct > 80 ? ' danger' : sPct > 60 ? ' warn' : '');
+        $('cd-sem-reset').textContent = d.weekly_reset_days ? 'resetea en ' + d.weekly_reset_days + 'd' : '';
+      }
+      const tk = d.session_tokens || {};
+      $('cd-tok-in').textContent = _fmtN(tk.input);
+      $('cd-tok-out').textContent = _fmtN(tk.output);
+      $('cd-tok-cr').textContent = _fmtN(tk.cache_read);
+      $('cd-tok-cc').textContent = _fmtN(tk.cache_create);
+    } catch (_) {}
+  }
+
+  $('claude-widget').addEventListener('click', (e) => {
+    e.stopPropagation();
+    const drop = $('claude-drop');
+    drop.hidden = !drop.hidden;
+    if (!drop.hidden) fetchClaudeUsage();
+  });
+
+  document.addEventListener('click', (e) => {
+    if (!$('cw-wrap').contains(e.target)) $('claude-drop').hidden = true;
+  });
 })();

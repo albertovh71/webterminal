@@ -30,7 +30,7 @@
   <script src="https://unpkg.com/xterm-addon-webgl@0.16.0/lib/xterm-addon-webgl.js"></script>
 
   <link rel="stylesheet" href="hljs-dracula.css?v=1" />
-  <link rel="stylesheet" href="style.css?v=60" />
+  <link rel="stylesheet" href="style.css?v=63" />
 </head>
 <body>
   <!-- Sprite de iconos SVG (local, mismo aspecto en Safari/Chrome/iOS/Android). Lucide, ISC. -->
@@ -161,8 +161,43 @@
       <div class="left">
         <span id="status-dot" class="dot dot-red"></span>
         <span id="status-text">desconectado</span>
+        <span class="topbar-sep">|</span>
+        <span id="topbar-user" class="topbar-user"></span>
       </div>
-      <div class="center">albertovh71_terminal</div>
+      <div class="center">
+        <span class="center-title">albertovh71_terminal</span>
+        <span class="topbar-sep">|</span>
+        <div id="cw-wrap" style="position:relative">
+          <button id="claude-widget" class="claude-widget" type="button" title="Uso de Claude Code">
+            <span class="cw-dot"></span>
+            <span class="cw-name">claude</span>
+            <span class="cw-sep">·</span>
+            <span id="cw-win">5h …</span>
+            <span class="cw-sep">·</span>
+            <span id="cw-sem">sem …</span>
+          </button>
+          <div id="claude-drop" class="claude-drop" hidden>
+            <div class="cd-section">CLAUDE</div>
+            <div class="cd-row">
+              <div class="cd-label">Ventana 5 h <span id="cd-win-pct" class="cd-pct"></span></div>
+              <div class="cd-bar"><div id="cd-win-bar" class="cd-fill" style="width:0%"></div></div>
+              <div id="cd-win-reset" class="cd-reset"></div>
+            </div>
+            <div class="cd-row">
+              <div class="cd-label">Límite semanal <span id="cd-sem-pct" class="cd-pct"></span></div>
+              <div class="cd-bar"><div id="cd-sem-bar" class="cd-fill" style="width:0%"></div></div>
+              <div id="cd-sem-reset" class="cd-reset"></div>
+            </div>
+            <div class="cd-section">TOKENS DE LA SESIÓN</div>
+            <div class="cd-tokens">
+              <div class="cd-tok-row"><span>Entrada</span><span id="cd-tok-in">—</span></div>
+              <div class="cd-tok-row"><span>Salida</span><span id="cd-tok-out">—</span></div>
+              <div class="cd-tok-row"><span>Caché (lectura)</span><span id="cd-tok-cr">—</span></div>
+              <div class="cd-tok-row"><span>Caché (creación)</span><span id="cd-tok-cc">—</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
       <div class="right">
         <button id="files-btn" title="Explorador de archivos (subir / descargar)"><svg class="ic"><use href="#ic-folder"/></svg></button>
         <button id="split-btn" title="Vista dividida: terminal y archivo a la vez"><svg class="ic"><use href="#ic-columns-2"/></svg></button>
@@ -399,6 +434,6 @@
   </div>
 
   <script src="highlight.min.js?v=1"></script>
-  <script src="app.js?v=69"></script>
+  <script src="app.js?v=71"></script>
 </body>
 </html>

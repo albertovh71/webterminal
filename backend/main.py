@@ -108,6 +108,7 @@ async def security_headers(request, call_next):
         "font-src https://fonts.gstatic.com; img-src 'self' data:; "
         f"connect-src 'self' {WS_ORIGIN}"
     )
+    resp.headers["Permissions-Policy"] = "clipboard-read=*, clipboard-write=*"
     return resp
 
 
@@ -903,6 +904,22 @@ async def ai_run(
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=str(exc))
     return {"text": result}
+
+
+_CLAUDE_CACHE = "/opt/webterminal/claude-usage-cache.json"
+
+
+@app.get("/claude-usage")
+async def claude_usage(authorization: str | None = Header(default=None)):
+    _bearer(authorization)
+    try:
+        with open(_CLAUDE_CACHE) as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return {"error": "cache_missing"}
+    except Exception as exc:
+        log.warning("claude-usage read error: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 @app.get("/manifest.webmanifest", include_in_schema=False)
