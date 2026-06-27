@@ -34,6 +34,8 @@ import paramiko
 from fastapi import FastAPI, File, Form, Header, HTTPException, Request, UploadFile, WebSocket
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.datastructures import MutableHeaders
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 import ai
 import auth
@@ -90,26 +92,45 @@ def _resolve_term(fsid: str, web_email: str):
     return term
 
 
-@app.middleware("http")
-async def security_headers(request, call_next):
-    resp = await call_next(request)
-    # El proxy de preview gestiona sus propias cabeceras: NO le metemos X-Frame-Options
-    # DENY ni el CSP estricto (si no, el iframe no mostraría la webapp proxeada).
-    if request.url.path.startswith("/preview"):
-        return resp
-    resp.headers["X-Frame-Options"] = "DENY"
-    resp.headers["X-Content-Type-Options"] = "nosniff"
-    resp.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
-    # Force browsers to revalidate static assets so updates aren't masked by cache.
-    resp.headers["Cache-Control"] = "no-cache, must-revalidate"
-    resp.headers["Content-Security-Policy"] = (
-        "default-src 'self'; script-src 'self' https://unpkg.com; "
-        "style-src 'self' 'unsafe-inline' https://unpkg.com https://fonts.googleapis.com; "
-        "font-src https://fonts.gstatic.com; img-src 'self' data:; "
-        f"connect-src 'self' {WS_ORIGIN}"
-    )
-    resp.headers["Permissions-Policy"] = "clipboard-read=*, clipboard-write=*"
-    return resp
+class _SecurityHeaders:
+    """Pure ASGI middleware that injects security headers.
+
+    BaseHTTPMiddleware (the @app.middleware shorthand) breaks FileResponse streaming
+    in Starlette 1.x — it sends headers but no body bytes. This ASGI-level wrapper
+    intercepts only the http.response.start message and lets body chunks pass through
+    the original `send` callable untouched.
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        is_preview = scope.get("path", "").startswith("/preview")
+
+        async def _send(message) -> None:
+            if message["type"] == "http.response.start" and not is_preview:
+                headers = MutableHeaders(scope=message)
+                headers["X-Frame-Options"] = "DENY"
+                headers["X-Content-Type-Options"] = "nosniff"
+                headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+                headers["Cache-Control"] = "no-cache, must-revalidate"
+                headers["Content-Security-Policy"] = (
+                    "default-src 'self'; script-src 'self' https://unpkg.com; "
+                    "style-src 'self' 'unsafe-inline' https://unpkg.com https://fonts.googleapis.com; "
+                    "font-src https://fonts.gstatic.com; img-src 'self' data:; "
+                    f"connect-src 'self' {WS_ORIGIN}"
+                )
+                headers["Permissions-Policy"] = "clipboard-read=*, clipboard-write=*"
+            await send(message)
+
+        await self.app(scope, receive, _send)
+
+
+app.add_middleware(_SecurityHeaders)
 
 
 def _bearer(authorization: str | None) -> str:
